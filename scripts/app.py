@@ -9,6 +9,12 @@ from chainlit.input_widget import Slider
 
 import google.generativeai as genai
 
+from fastapi.responses import JSONResponse
+
+from chainlit.auth import create_jwt
+from chainlit.server import app
+
+
 
 class GeminiEmbeddingFunction(EmbeddingFunction):
     def __call__(self, input: Documents) -> Embeddings:
@@ -93,8 +99,16 @@ async def start():
             step=1,
         )
     ]).send()
+    
 
     await setup_model(settings)
+
+    cl.user_session.set(
+        "message_history",
+        [{"role": "system", "content": "You are a helpful assistant."}],
+    )
+    await cl.Message(content="Connected to Chainlit!").send()
+
 
 
 @cl.on_settings_update
@@ -122,10 +136,17 @@ def loadVectorDataBase():
         name="sme_db", embedding_function=GeminiEmbeddingFunction())
 
     cl.user_session.set('db', db)
+
+@app.get("/custom-auth")
+async def custom_auth():
+    # Verify the user's identity with custom logic.
+    token = create_jwt(cl.User(identifier="Test User"))
+    return JSONResponse({"token": token})
     
     
 @cl.on_message
 async def main(message):
+    '''
     model = cl.user_session.get('model')
     
     question = message.content
@@ -142,6 +163,24 @@ async def main(message):
     ansRes = " ".join(ansList)
     
     await cl.Message(content=ansRes).send()
+    '''
+    message_history = cl.user_session.get("message_history")
+    message_history.append({"role": "user", "content": message.content})
+
+    msg = cl.Message(content="")
+    await msg.send()
+
+    model = cl.user_session.get('model')
+    
+    question = message.content
+    db = cl.user_session.get('db')
+    passages = get_relevant_passages(question, db, 5)
+    
+    prompt = make_prompt(message.content, convert_pasages_to_string(passages))
+
+    msg.content = " ".join([part.text for part in model.generate_content(prompt).candidates[0].content.parts])
+    message_history.append({"role": "assistant", "content": msg.content})
+    await msg.update()
     
     
     
