@@ -30,15 +30,26 @@ def get_relevant_passages(query, db, n_results=10):
     passages = db.query(query_texts=[query], n_results=n_results)['documents'][0]
     return passages
 
+def convert_message_history_to_text(message_history):
+        text = ""
+        for message in message_history:
+            text += f"{message['role']}: {message['content']}\n"
+        return text
 
-def make_prompt(query, relevant_passage):
+
+def make_prompt(query, relevant_passage, language="English"):
     escaped = relevant_passage.replace("'", "").replace('"', "")
-
-    prompt = f"""question : {query}.\n
+    print(cl.user_session.get("message_history"))
+    prompt = f"""
+    Message history:\n {convert_message_history_to_text(cl.user_session.get("message_history"))}\n
+    question : {query}.\n
     Supplementary Information:\n {escaped}\n
-    If you find that the question is unrelated to the additional information, you can ignore it and answer with 'OUT OF CONTEXT'.\n
-     Your answer :
+    Please limit your responses to 200 words or less.\n
+    Please respond in {language}\n
+    Your answer:
     """
+    #Bitte antworten Sie auf Deutsch.\n
+#    If you find that the question is unrelated to the additional information, please give the best response you can.\n
 
     return prompt
 
@@ -53,8 +64,8 @@ def convert_pasages_to_string(passages):
 
 
 config = {
-    'max_output_tokens': 128,
-    'temperature': 0.9,
+    'max_output_tokens': 256,
+    'temperature': 0.8,
     'top_p': 0.9,
     'top_k': 50,
 }
@@ -107,7 +118,7 @@ async def start():
         "message_history",
         [{"role": "system", "content": "You are a helpful assistant."}],
     )
-    await cl.Message(content="Connected to Chainlit!").send()
+    await cl.Message(content="Connected to Immigration Assistant!").send()
 
 
 
@@ -165,7 +176,7 @@ async def main(message):
     await cl.Message(content=ansRes).send()
     '''
     message_history = cl.user_session.get("message_history")
-    message_history.append({"role": "user", "content": message.content})
+    message_history.append({"role": "User", "content": message.content})
 
     msg = cl.Message(content="")
     await msg.send()
@@ -174,12 +185,22 @@ async def main(message):
     
     question = message.content
     db = cl.user_session.get('db')
-    passages = get_relevant_passages(question, db, 5)
     
-    prompt = make_prompt(message.content, convert_pasages_to_string(passages))
+    engtranslation = " ".join([part.text for part in model.generate_content("Please translate the following text to English. If it is already in English, leave it as is: " + question).candidates[0].content.parts])
+
+    passages = get_relevant_passages(engtranslation, db, 5)
+
+    
+    prompt = make_prompt(message.content, convert_pasages_to_string(passages), language="English")
+
+    for candidates in model.generate_content(prompt).candidates:
+        print(candidates)
+
+    print(prompt)
 
     msg.content = " ".join([part.text for part in model.generate_content(prompt).candidates[0].content.parts])
     message_history.append({"role": "assistant", "content": msg.content})
+    cl.user_session.set("message_history", message_history)
     await msg.update()
     
     
