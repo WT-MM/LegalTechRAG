@@ -135,7 +135,13 @@ async def main(message):
     prompt = make_prompt(message.content, convert_pasages_to_string(passages))
     
     answer = model.generate_content(prompt)
-    await cl.Message(content=answer.text).send()
+    ansList = []
+    for candidate in answer.candidates:
+            ansList = [part.text for part in candidate.content.parts]
+
+    ansRes = " ".join(ansList)
+    
+    await cl.Message(content=ansRes).send()
     
     
     
